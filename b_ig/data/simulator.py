@@ -6,9 +6,11 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
+from b_ig.data.base import MarketDataSource
+
 
 @dataclass
-class MarketSimulator:
+class MarketSimulator(MarketDataSource):
     """Deterministic M5 candle stream for paper trading and dashboard charts."""
 
     symbol: str = "EURUSD"
@@ -28,7 +30,7 @@ class MarketSimulator:
             "H1": self._resample("1h"),
         }
 
-    def next_frame(self) -> pd.DataFrame:
+    async def next_frame(self) -> pd.DataFrame:
         last = self._candles.iloc[-1]
         ts = self._candles.index[-1] + timedelta(minutes=5)
         close = float(last["close"])

@@ -2,24 +2,25 @@ from __future__ import annotations
 
 import abc
 
-from b_ig.models import Order, Position
+import pandas as pd
 
 
-class Broker(abc.ABC):
-    name = "BASE"
+class MarketDataSource(abc.ABC):
+    symbol: str
 
     @abc.abstractmethod
-    async def balance(self) -> float:
+    async def next_frame(self) -> pd.DataFrame:
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def positions(self) -> list[Position]:
+    def frame(self) -> pd.DataFrame:
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def submit(self, order: Order) -> dict:
+    def htf_frames(self) -> dict[str, pd.DataFrame]:
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def close_all(self, reason: str) -> list[dict]:
+    def candles_json(self, limit: int = 120) -> list[dict]:
         raise NotImplementedError
+

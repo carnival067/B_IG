@@ -84,6 +84,32 @@ def test_ig_connection_requires_credentials(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
+def test_binance_connection_requires_demo_credentials(monkeypatch) -> None:
+    get_bot.cache_clear()
+    get_settings.cache_clear()
+    monkeypatch.setenv("BINANCE_API_KEY", "")
+    monkeypatch.setenv("BINANCE_API_SECRET", "")
+    response = TestClient(app).get("/broker/binance/test")
+    assert response.status_code == 400
+    assert "credentials" in response.json()["detail"].lower()
+    get_bot.cache_clear()
+    get_settings.cache_clear()
+
+
+def test_binance_auto_start_is_guarded(monkeypatch) -> None:
+    get_bot.cache_clear()
+    get_settings.cache_clear()
+    monkeypatch.setenv("BROKER", "BINANCE")
+    monkeypatch.setenv("MODE", "DEMO")
+    monkeypatch.setenv("BINANCE_ENV", "DEMO")
+    monkeypatch.setenv("BINANCE_AUTO_TRADING", "false")
+    response = TestClient(app).post("/bot/start")
+    assert response.status_code == 403
+    assert "not ready" in response.json()["detail"].lower()
+    get_bot.cache_clear()
+    get_settings.cache_clear()
+
+
 def test_profile_credentials_are_saved_as_masked_status() -> None:
     client = TestClient(app)
     response = client.post(

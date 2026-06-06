@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     MODE: Mode = Mode.PAPER
     ALLOW_LIVE_TRADING: bool = False
+    BROKER: str = "PAPER"
 
     STARTING_BALANCE: float = Field(default=10_000.0, gt=0)
     RISK_PER_TRADE: float = Field(default=0.01, gt=0, le=0.02)
@@ -40,6 +41,13 @@ class Settings(BaseSettings):
     IG_USERNAME: str = ""
     IG_PASSWORD: SecretStr = SecretStr("")
     IG_ACCOUNT_TYPE: str = "DEMO"
+
+    BINANCE_ENV: str = "DEMO"
+    BINANCE_API_KEY: SecretStr = SecretStr("")
+    BINANCE_API_SECRET: SecretStr = SecretStr("")
+    BINANCE_AUTO_TRADING: bool = False
+    BINANCE_LEVERAGE: int = Field(default=5, ge=1, le=25)
+    BINANCE_MARGIN_TYPE: str = "ISOLATED"
 
     DATABASE_URL: str = "postgresql+asyncpg://b_ig:b_ig@localhost:5432/b_ig"
     ECONOMIC_CALENDAR_URL: str = ""
@@ -61,6 +69,29 @@ class Settings(BaseSettings):
         if self.IG_ACCOUNT_TYPE.upper() == "LIVE":
             return "https://api.ig.com/gateway/deal"
         return "https://demo-api.ig.com/gateway/deal"
+
+    @property
+    def binance_base_url(self) -> str:
+        if self.BINANCE_ENV.upper() == "LIVE":
+            return "https://fapi.binance.com"
+        return "https://demo-fapi.binance.com"
+
+    @property
+    def binance_configured(self) -> bool:
+        return bool(
+            self.BINANCE_API_KEY.get_secret_value()
+            and self.BINANCE_API_SECRET.get_secret_value()
+        )
+
+    @property
+    def binance_demo_enabled(self) -> bool:
+        return (
+            self.BROKER.upper() == "BINANCE"
+            and self.MODE is Mode.DEMO
+            and self.BINANCE_ENV.upper() == "DEMO"
+            and self.BINANCE_AUTO_TRADING
+            and self.binance_configured
+        )
 
 
 @lru_cache

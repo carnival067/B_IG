@@ -12,6 +12,12 @@ services:
         value: PAPER
       - key: ALLOW_LIVE_TRADING
         value: "false"
+      - key: BROKER
+        value: PAPER
+      - key: BINANCE_ENV
+        value: DEMO
+      - key: BINANCE_AUTO_TRADING
+        value: "false"
       - key: SYMBOLS
         value: EURUSD,GBPUSD,USDJPY,AUDUSD,USDCAD,BTCUSDT
       - key: STARTING_BALANCE
@@ -26,4 +32,3 @@ services:
         value: "3"
       - key: AI_MIN_SCORE
         value: "80"
-

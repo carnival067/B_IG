@@ -8,6 +8,8 @@ from b_ig.models import Order, Position
 
 
 class PaperBroker(Broker):
+    name = "PAPER"
+
     def __init__(self, starting_balance: float = 10_000.0) -> None:
         self.cash = starting_balance
         self._positions: list[Position] = []

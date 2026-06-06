@@ -122,6 +122,11 @@ Render deployment files are included:
 Free Render services can sleep after inactivity, so use this for paper testing,
 not always-on real trading.
 
+## Binance Futures Demo
+
+See `BINANCE_DEMO_SETUP.md` for the guarded Binance USD-M Futures Demo
+integration. Mainnet Binance trading is blocked in this build.
+
 ## Connect IG
 
 Create `B_IG/.env` from `.env.example` and fill your IG details:

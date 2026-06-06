@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from websockets.exceptions import ConnectionClosed
 
 from b_ig.api.state import get_bot
+from b_ig.broker.binance_futures import BinanceAuthError, BinanceFuturesBroker
 from b_ig.broker.ig import IGAuthError, IGBroker
 from b_ig.config import Mode, get_settings
 from b_ig.models import SignalSide, TradeSignal
@@ -420,6 +421,12 @@ async def status() -> dict:
             and settings.IG_PASSWORD.get_secret_value()
         ),
         "ig_account_type": settings.IG_ACCOUNT_TYPE,
+        "requested_broker": settings.BROKER.upper(),
+        "active_broker": bot.broker.name,
+        "binance_environment": settings.BINANCE_ENV.upper(),
+        "binance_configured": settings.binance_configured,
+        "binance_auto_trading": settings.BINANCE_AUTO_TRADING,
+        "binance_demo_enabled": settings.binance_demo_enabled,
     }
 
 
@@ -433,6 +440,20 @@ async def test_ig_connection() -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"IG request failed: {exc}") from exc
+
+
+@app.get("/broker/binance/test")
+async def test_binance_connection() -> dict:
+    broker = BinanceFuturesBroker(get_settings())
+    try:
+        return await broker.test_connection()
+    except BinanceAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Binance demo request failed: {exc.response.text[:300]}",
+        ) from exc
 
 
 @app.get("/profiles")
@@ -475,6 +496,15 @@ async def test_profile_ig(profile_name: str) -> dict:
 
 @app.post("/bot/start")
 async def start() -> dict:
+    settings = get_settings()
+    if settings.BROKER.upper() == "BINANCE" and not settings.binance_demo_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Binance auto trading is not ready. Set MODE=DEMO, "
+                "BINANCE_ENV=DEMO, BINANCE_AUTO_TRADING=true, and demo API credentials."
+            ),
+        )
     bot = get_bot()
     return bot.start_auto()
 

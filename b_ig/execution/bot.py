@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from b_ig.broker.base import Broker
-from b_ig.data import MarketSimulator
+from b_ig.data import MarketDataSource
 from b_ig.models import SignalSide
 from b_ig.risk import RiskManager
 from b_ig.strategy import SMCStrategy
@@ -17,7 +17,7 @@ class TradingBot:
     strategy: SMCStrategy
     broker: Broker
     risk: RiskManager
-    markets: dict[str, MarketSimulator]
+    markets: dict[str, MarketDataSource]
     running: bool = False
     events: list[dict] = field(default_factory=list)
     _task: asyncio.Task | None = field(default=None, init=False, repr=False)
@@ -78,7 +78,7 @@ class TradingBot:
 
     async def _tick_symbol(self, symbol: str) -> dict:
         market = self.markets[symbol]
-        candles = market.next_frame()
+        candles = await market.next_frame()
         return await self.evaluate(symbol, candles, market.htf_frames())
 
     def start_auto(self, interval_seconds: int = 5) -> dict:
@@ -86,11 +86,24 @@ class TradingBot:
             return {"status": "already_running"}
         self.running = True
         self._task = asyncio.create_task(self._run_loop(interval_seconds))
-        return {"status": "started", "mode": "paper_auto", "interval_seconds": interval_seconds}
+        return {
+            "status": "started",
+            "mode": self.broker.name,
+            "interval_seconds": interval_seconds,
+        }
 
     async def _run_loop(self, interval_seconds: int) -> None:
         while self.running:
-            await self.tick()
+            try:
+                await self.tick()
+            except Exception as exc:  # noqa: BLE001 - loop must survive API outages
+                self.events.append(
+                    {
+                        "status": "error",
+                        "reason": str(exc),
+                        "score": 0,
+                    }
+                )
             await asyncio.sleep(interval_seconds)
 
     def stop(self) -> None:
@@ -107,7 +120,7 @@ class TradingBot:
     def symbols(self) -> list[str]:
         return list(self.markets)
 
-    def market(self, symbol: str | None = None) -> MarketSimulator:
+    def market(self, symbol: str | None = None) -> MarketDataSource:
         symbol = symbol or self.symbols[0]
         if symbol not in self.markets:
             raise KeyError(symbol)
