@@ -28,6 +28,12 @@ class AlwaysSession(SessionFilter):
     def tradable(self, now: datetime) -> bool:
         return True
 
+    def tradable_for_symbol(self, symbol: str, now: datetime) -> bool:
+        return True
+
+    def session_name_for_symbol(self, symbol: str, now: datetime) -> str:
+        return "LONDON"
+
 
 class StubSMC:
     def analyze(self, symbol, candles, htf_candles=None, session_name="LONDON"):
@@ -79,3 +85,21 @@ def test_strategy_emits_buy_when_all_conditions_align() -> None:
     assert signal.side is SignalSide.BUY
     assert signal.score >= 80
     assert signal.take_profit > signal.entry
+
+
+def test_crypto_symbol_is_not_blocked_by_session_filter() -> None:
+    now = datetime(2026, 1, 3, 2, tzinfo=UTC)
+    candles = pd.DataFrame(
+        [[1.1005, 1.1010, 1.1000, 1.1006, 100]],
+        columns=["open", "high", "low", "close", "volume"],
+        index=[now],
+    )
+    strategy = SMCStrategy(
+        Settings(AI_MIN_SCORE=80),
+        smc=StubSMC(),
+        news_filter=NewsFilter(),
+    )
+    crypto_signal = strategy.generate("BTCUSDT", candles)
+    forex_signal = strategy.generate("EURUSD", candles)
+    assert crypto_signal.reason != "session not tradable"
+    assert forex_signal.reason == "session not tradable"

@@ -33,11 +33,14 @@ class SMCStrategy:
         htf_candles: dict[str, pd.DataFrame] | None = None,
     ) -> TradeSignal:
         now = self.smc._timestamp(candles.index[-1])  # noqa: SLF001
-        session_name = self.session_filter.session_name(now)
+        session_name = self.session_filter.session_name_for_symbol(symbol, now)
         context = self.smc.analyze(symbol, candles, htf_candles, session_name=session_name)
         price = float(candles["close"].iloc[-1])
 
-        if not self.allow_all_sessions and not self.session_filter.tradable(now):
+        if (
+            not self.allow_all_sessions
+            and not self.session_filter.tradable_for_symbol(symbol, now)
+        ):
             return self._hold(symbol, price, "session not tradable")
         if self.news_filter.blocked(now):
             return self._hold(symbol, price, "high-impact news pause")
