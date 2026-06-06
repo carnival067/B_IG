@@ -9,7 +9,7 @@ from httpx import HTTPError
 from pydantic import BaseModel
 from websockets.exceptions import ConnectionClosed
 
-from b_ig.api.state import get_bot
+from b_ig.api.state import active_settings, get_bot, set_runtime_settings
 from b_ig.broker.binance_futures import BinanceAuthError, BinanceFuturesBroker
 from b_ig.broker.ig import IGAuthError, IGBroker
 from b_ig.config import Mode, get_settings
@@ -81,9 +81,13 @@ async def dashboard() -> str:
             f"<td>{profile['api_key_masked']}</td>"
             f"<td>{profile['environment']}</td>"
             f"<td>{profile['connected']}</td>"
+            f"<td>{profile['active']}</td>"
             f"<td>{profile['balance'] if profile['balance'] is not None else ''}</td>"
             f"<td>{profile['last_error'] or ''}</td>"
-            f"<td><button data-binance-test=\"{profile['name']}\">Test</button></td>"
+            "<td>"
+            f"<button data-binance-test=\"{profile['name']}\">Test</button> "
+            f"<button data-binance-activate=\"{profile['name']}\">Use Demo</button>"
+            "</td>"
             "</tr>"
         )
         for profile in binance_profiles["profiles"]
@@ -308,6 +312,7 @@ async def dashboard() -> str:
             <th>API Key</th>
             <th>Environment</th>
             <th>Connected</th>
+            <th>Active</th>
             <th>Demo USDT</th>
             <th>Last Error</th>
             <th>Action</th>
@@ -452,9 +457,13 @@ async def dashboard() -> str:
           <td>${{profile.api_key_masked}}</td>
           <td>${{profile.environment}}</td>
           <td>${{profile.connected}}</td>
+          <td>${{profile.active}}</td>
           <td>${{profile.balance ?? ""}}</td>
           <td>${{profile.last_error || ""}}</td>
-          <td><button data-binance-test="${{profile.name}}">Test</button></td>
+          <td>
+            <button data-binance-test="${{profile.name}}">Test</button>
+            <button data-binance-activate="${{profile.name}}">Use Demo</button>
+          </td>
         </tr>
       `).join("");
     }}
@@ -490,6 +499,22 @@ async def dashboard() -> str:
         button.disabled = false;
       }}
     }});
+    document.addEventListener("click", async event => {{
+      const button = event.target.closest("button[data-binance-activate]");
+      if (!button) return;
+      button.disabled = true;
+      try {{
+        const name = encodeURIComponent(button.dataset.binanceActivate);
+        const response = await fetch(
+          `/profiles/${{name}}/binance/activate-demo`,
+          {{ method: "POST" }}
+        );
+        live.textContent = JSON.stringify(await response.json(), null, 2);
+        await refreshBinanceProfiles();
+      }} finally {{
+        button.disabled = false;
+      }}
+    }});
   </script>
 </body>
 </html>"""
@@ -507,7 +532,7 @@ async def health() -> dict[str, str]:
 
 @app.get("/status")
 async def status() -> dict:
-    settings = get_settings()
+    settings = active_settings()
     bot = get_bot()
     last_event = bot.last_event or {}
     return {
@@ -551,7 +576,7 @@ async def test_ig_connection() -> dict:
 
 @app.get("/broker/binance/test")
 async def test_binance_connection() -> dict:
-    broker = BinanceFuturesBroker(get_settings())
+    broker = BinanceFuturesBroker(active_settings())
     try:
         return await broker.test_connection()
     except BinanceAuthError as exc:
@@ -643,9 +668,40 @@ async def test_profile_binance(profile_name: str) -> dict:
     }
 
 
+@app.post("/profiles/{profile_name}/binance/activate-demo")
+async def activate_profile_binance(profile_name: str) -> dict:
+    try:
+        profile = profile_store.activate_binance(profile_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown profile: {profile_name}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    current_bot = get_bot()
+    current_bot.stop()
+    runtime = profile.settings(get_settings()).model_copy(
+        update={
+            "MODE": Mode.DEMO,
+            "BROKER": "BINANCE",
+            "BINANCE_AUTO_TRADING": True,
+            "SYMBOLS": "BTCUSDT",
+            "ALLOW_LIVE_TRADING": False,
+        }
+    )
+    set_runtime_settings(runtime)
+    bot = get_bot()
+    return {
+        "status": "activated",
+        "profile": profile.public(),
+        "active_broker": bot.broker.name,
+        "symbols": bot.symbols,
+        "auto_trading": runtime.BINANCE_AUTO_TRADING,
+    }
+
+
 @app.post("/bot/start")
 async def start() -> dict:
-    settings = get_settings()
+    settings = active_settings()
     if settings.BROKER.upper() == "BINANCE" and not settings.binance_demo_enabled:
         raise HTTPException(
             status_code=403,

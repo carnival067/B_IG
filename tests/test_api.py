@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from b_ig.api.main import app
-from b_ig.api.state import get_bot
+from b_ig.api.state import get_bot, set_runtime_settings
 from b_ig.broker.binance_futures import BinanceFuturesBroker
 from b_ig.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def reset_runtime_settings() -> None:
+    set_runtime_settings(None)
+    yield
+    set_runtime_settings(None)
 
 
 def test_homepage_has_trade_button() -> None:
@@ -184,6 +192,36 @@ def test_binance_profile_connection_status(monkeypatch) -> None:
     profile = response.json()["profile"]
     assert profile["connected"] is True
     assert profile["balance"] == 12345.67
+
+
+def test_connected_binance_profile_can_activate_demo(monkeypatch) -> None:
+    async def fake_test_connection(self) -> dict:
+        return {
+            "authenticated": True,
+            "environment": "DEMO",
+            "balance": 10000.0,
+            "positions": 0,
+        }
+
+    monkeypatch.setattr(BinanceFuturesBroker, "test_connection", fake_test_connection)
+    client = TestClient(app)
+    client.post(
+        "/profiles/binance",
+        json={
+            "name": "activate-demo",
+            "api_key": "demo-api-key-activate",
+            "api_secret": "demo-secret-activate",
+            "environment": "DEMO",
+        },
+    )
+    client.post("/profiles/activate-demo/binance/test")
+    response = client.post("/profiles/activate-demo/binance/activate-demo")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "activated"
+    assert payload["active_broker"] == "BINANCE_DEMO"
+    assert payload["symbols"] == ["BTCUSDT"]
+    assert payload["auto_trading"] is True
 
 
 def test_unknown_binance_profile_returns_404() -> None:

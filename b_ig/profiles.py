@@ -70,6 +70,7 @@ class BinanceProfile:
     balance: float | None = None
     last_checked: datetime | None = None
     last_error: str | None = None
+    active: bool = False
 
     def settings(self, base: Settings) -> Settings:
         return base.model_copy(
@@ -89,6 +90,7 @@ class BinanceProfile:
             "balance": self.balance,
             "last_checked": self.last_checked.isoformat() if self.last_checked else None,
             "last_error": self.last_error,
+            "active": self.active,
             "api_key_masked": self._mask(self.api_key),
             "secret_saved": bool(self.api_secret),
         }
@@ -178,6 +180,15 @@ class ProfileStore:
 
     def list_binance_public(self) -> list[dict]:
         return [profile.public() for profile in self._binance_profiles.values()]
+
+    def activate_binance(self, name: str) -> BinanceProfile:
+        profile = self.get_binance(name)
+        if not profile.connected:
+            raise ValueError("test the Binance demo connection before activation")
+        for item in self._binance_profiles.values():
+            item.active = False
+        profile.active = True
+        return profile
 
 
 profile_store = ProfileStore()
