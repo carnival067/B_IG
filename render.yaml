@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: b-ig
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn b_ig.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.3
+      - key: MODE
+        value: PAPER
+      - key: ALLOW_LIVE_TRADING
+        value: "false"
+      - key: SYMBOLS
+        value: EURUSD,GBPUSD,USDJPY,AUDUSD,USDCAD,BTCUSDT
+      - key: STARTING_BALANCE
+        value: "10000"
+      - key: RISK_PER_TRADE
+        value: "0.01"
+      - key: LEVERAGE
+        value: "25"
+      - key: RISK_REWARD
+        value: "5"
+      - key: STOP_BUFFER_PIPS
+        value: "3"
+      - key: AI_MIN_SCORE
+        value: "80"
+

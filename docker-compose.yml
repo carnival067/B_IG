@@ -1,0 +1,30 @@
+services:
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      MODE: ${MODE:-PAPER}
+      ALLOW_LIVE_TRADING: ${ALLOW_LIVE_TRADING:-false}
+      DATABASE_URL: postgresql+asyncpg://b_ig:b_ig@postgres:5432/b_ig
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: b_ig
+      POSTGRES_PASSWORD: b_ig
+      POSTGRES_DB: b_ig
+    ports:
+      - "5432:5432"
+    volumes:
+      - b_ig_postgres:/var/lib/postgresql/data
+      - ./b_ig/storage/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+
+volumes:
+  b_ig_postgres:
+
