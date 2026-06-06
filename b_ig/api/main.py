@@ -27,10 +27,18 @@ class IGProfileRequest(BaseModel):
     account_type: str = "DEMO"
 
 
+class BinanceProfileRequest(BaseModel):
+    name: str
+    api_key: str
+    api_secret: str
+    environment: str = "DEMO"
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard() -> str:
     status_data = await status()
     profiles = await list_profiles()
+    binance_profiles = await list_binance_profiles()
     cards = [
         ("Mode", status_data["mode"]),
         ("Live Enabled", status_data["live_trading_enabled"]),
@@ -65,6 +73,20 @@ async def dashboard() -> str:
             "</tr>"
         )
         for profile in profiles["profiles"]
+    )
+    binance_profile_rows = "\n".join(
+        (
+            "        <tr>"
+            f"<td>{profile['name']}</td>"
+            f"<td>{profile['api_key_masked']}</td>"
+            f"<td>{profile['environment']}</td>"
+            f"<td>{profile['connected']}</td>"
+            f"<td>{profile['balance'] if profile['balance'] is not None else ''}</td>"
+            f"<td>{profile['last_error'] or ''}</td>"
+            f"<td><button data-binance-test=\"{profile['name']}\">Test</button></td>"
+            "</tr>"
+        )
+        for profile in binance_profiles["profiles"]
     )
     return f"""<!doctype html>
 <html lang="en">
@@ -258,6 +280,44 @@ async def dashboard() -> str:
         </tbody>
       </table>
     </section>
+    <section class="chart-wrap">
+      <div class="chart-head">
+        <strong>Binance Futures Demo</strong>
+        <span>Demo credentials are kept in server memory only.</span>
+      </div>
+      <form id="binanceProfileForm">
+        <div class="profile-grid">
+          <input name="name" placeholder="Profile name" required>
+          <input name="api_key" placeholder="Binance demo API key" required>
+          <input
+            name="api_secret"
+            placeholder="Binance demo secret key"
+            type="password"
+            required
+          >
+          <select name="environment">
+            <option value="DEMO">DEMO</option>
+          </select>
+          <button type="submit">Save Binance Profile</button>
+        </div>
+      </form>
+      <table>
+        <thead>
+          <tr>
+            <th>Profile</th>
+            <th>API Key</th>
+            <th>Environment</th>
+            <th>Connected</th>
+            <th>Demo USDT</th>
+            <th>Last Error</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="binanceProfiles">
+{binance_profile_rows}
+        </tbody>
+      </table>
+    </section>
     <pre id="live"></pre>
   </main>
   <script>
@@ -383,6 +443,53 @@ async def dashboard() -> str:
         button.disabled = false;
       }}
     }});
+    async function refreshBinanceProfiles() {{
+      const response = await fetch("/profiles/binance");
+      const payload = await response.json();
+      document.getElementById("binanceProfiles").innerHTML = payload.profiles.map(profile => `
+        <tr>
+          <td>${{profile.name}}</td>
+          <td>${{profile.api_key_masked}}</td>
+          <td>${{profile.environment}}</td>
+          <td>${{profile.connected}}</td>
+          <td>${{profile.balance ?? ""}}</td>
+          <td>${{profile.last_error || ""}}</td>
+          <td><button data-binance-test="${{profile.name}}">Test</button></td>
+        </tr>
+      `).join("");
+    }}
+    document.getElementById("binanceProfileForm").addEventListener(
+      "submit",
+      async event => {{
+        event.preventDefault();
+        const form = new FormData(event.target);
+        const payload = Object.fromEntries(form.entries());
+        const response = await fetch("/profiles/binance", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify(payload)
+        }});
+        live.textContent = JSON.stringify(await response.json(), null, 2);
+        event.target.reset();
+        await refreshBinanceProfiles();
+      }}
+    );
+    document.addEventListener("click", async event => {{
+      const button = event.target.closest("button[data-binance-test]");
+      if (!button) return;
+      button.disabled = true;
+      try {{
+        const name = encodeURIComponent(button.dataset.binanceTest);
+        const response = await fetch(
+          `/profiles/${{name}}/binance/test`,
+          {{ method: "POST" }}
+        );
+        live.textContent = JSON.stringify(await response.json(), null, 2);
+        await refreshBinanceProfiles();
+      }} finally {{
+        button.disabled = false;
+      }}
+    }});
   </script>
 </body>
 </html>"""
@@ -492,6 +599,48 @@ async def test_profile_ig(profile_name: str) -> dict:
 
     profile.mark_connected(result.get("account_id"))
     return {"status": "connected", "profile": profile.public(), "ig": result}
+
+
+@app.get("/profiles/binance")
+async def list_binance_profiles() -> dict:
+    return {"profiles": profile_store.list_binance_public()}
+
+
+@app.post("/profiles/binance")
+async def save_binance_profile(payload: BinanceProfileRequest) -> dict:
+    try:
+        profile = profile_store.upsert_binance(
+            name=payload.name,
+            api_key=payload.api_key,
+            api_secret=payload.api_secret,
+            environment=payload.environment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "saved", "profile": profile.public()}
+
+
+@app.post("/profiles/{profile_name}/binance/test")
+async def test_profile_binance(profile_name: str) -> dict:
+    try:
+        profile = profile_store.get_binance(profile_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown profile: {profile_name}") from exc
+
+    broker = BinanceFuturesBroker(profile.settings(get_settings()))
+    try:
+        result = await broker.test_connection()
+    except (BinanceAuthError, HTTPError) as exc:
+        detail = exc.response.text[:300] if isinstance(exc, HTTPError) else str(exc)
+        profile.mark_failed(detail)
+        return {"status": "failed", "profile": profile.public()}
+
+    profile.mark_connected(float(result.get("balance") or 0.0))
+    return {
+        "status": "connected",
+        "profile": profile.public(),
+        "binance": result,
+    }
 
 
 @app.post("/bot/start")

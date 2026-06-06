@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from b_ig.api.main import app
 from b_ig.api.state import get_bot
+from b_ig.broker.binance_futures import BinanceFuturesBroker
 from b_ig.config import get_settings
 
 
@@ -12,6 +13,7 @@ def test_homepage_has_trade_button() -> None:
     assert response.status_code == 200
     assert "Paper Test Trade" in response.text
     assert "Allow All Sessions" in response.text
+    assert "Binance Futures Demo" in response.text
     assert "/trade/paper-test" in response.text
 
 
@@ -134,4 +136,56 @@ def test_profile_credentials_are_saved_as_masked_status() -> None:
 
 def test_unknown_profile_connection_returns_404() -> None:
     response = TestClient(app).post("/profiles/missing/ig/test")
+    assert response.status_code == 404
+
+
+def test_binance_profile_secret_is_not_returned() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/profiles/binance",
+        json={
+            "name": "binance-demo",
+            "api_key": "demo-api-key-123456",
+            "api_secret": "never-return-this-secret",
+            "environment": "DEMO",
+        },
+    )
+    assert response.status_code == 200
+    profile = response.json()["profile"]
+    assert profile["api_key_masked"] == "demo...3456"
+    assert profile["secret_saved"] is True
+    listed = client.get("/profiles/binance").json()
+    assert "never-return-this-secret" not in str(listed)
+
+
+def test_binance_profile_connection_status(monkeypatch) -> None:
+    async def fake_test_connection(self) -> dict:
+        return {
+            "authenticated": True,
+            "environment": "DEMO",
+            "balance": 12345.67,
+            "positions": 0,
+        }
+
+    monkeypatch.setattr(BinanceFuturesBroker, "test_connection", fake_test_connection)
+    client = TestClient(app)
+    client.post(
+        "/profiles/binance",
+        json={
+            "name": "connected-demo",
+            "api_key": "demo-api-key-connected",
+            "api_secret": "demo-secret-connected",
+            "environment": "DEMO",
+        },
+    )
+    response = client.post("/profiles/connected-demo/binance/test")
+    assert response.status_code == 200
+    assert response.json()["status"] == "connected"
+    profile = response.json()["profile"]
+    assert profile["connected"] is True
+    assert profile["balance"] == 12345.67
+
+
+def test_unknown_binance_profile_returns_404() -> None:
+    response = TestClient(app).post("/profiles/missing/binance/test")
     assert response.status_code == 404
